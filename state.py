@@ -1,11 +1,11 @@
 from typing import  NotRequired, TypedDict
-from schemas import OrderRecord, GroundingResult,ClassificationReport
+from schemas import OrderRecord, GroundingResult,ClassificationReport, Route
 import operator
-from typing_extensions import Annotated, 
+from typing_extensions import Annotated
 
 class AgentState(TypedDict):
     #1.Input
-    ticket_id: str
+        
     order_id: NotRequired[str]
     #2.Per node results
     classification_report: ClassificationReport
@@ -16,6 +16,6 @@ class AgentState(TypedDict):
     #3. Accumulating
     decision_log: Annotated[list[dict],operator.add]
     #4. Routing / Final
-    route: str
+    route: Route
 
 

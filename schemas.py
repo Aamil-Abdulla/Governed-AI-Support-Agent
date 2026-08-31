@@ -28,3 +28,10 @@ class ClassificationReport(BaseModel):
         "refund_request", "order_status", "product_question", "complaint", "other"
     ]
     confidence: float
+
+NodeName = Literal[
+    "intake", "classify", "retrieve", "validate_grounding",
+    "decide", "risk_check", "execute_or_queue",
+]
+
+Route = Literal["auto_execute", "require_approval"]
