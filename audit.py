@@ -1,4 +1,5 @@
 from db import SupaBase
+
 def log_decision(
     ticket_id: str,
     node_name: str,
@@ -8,6 +9,8 @@ def log_decision(
     tool_called: str | None = None,
     parameters: dict | None = None,
     risk_score: float | None = None,
+    risk_level: str | None = None,
+    risk_reason: str | None = None,
     raw_trace: str | None = None,
     plain_language_rationale: str | None = None,
 ) -> None:
@@ -31,14 +34,13 @@ def log_decision(
             "tool_called": tool_called,
             "parameters": parameters,
             "risk_score": risk_score,
+            "risk_level": risk_level,
+            "risk_reason": risk_reason,
             "raw_trace": raw_trace,
             "plain_language_rationale": plain_language_rationale,
         }).execute()
         return
     except Exception as primary_error:
-        # primary_error is auto-deleted by Python when this except block
-        # exits (CPython avoids traceback reference cycles). Capture what
-        # we need into a plain variable now, before that happens.
         primary_error_msg = repr(primary_error)
     try:
         SupaBase.table("decisions").insert({
