@@ -1,4 +1,5 @@
-from typing import NotRequired, TypedDict
+from typing import TypedDict
+from typing_extensions import NotRequired, Annotated
 from schemas import OrderRecord, GroundingResult, ClassificationReport, Route
 import operator
 from typing_extensions import Annotated
