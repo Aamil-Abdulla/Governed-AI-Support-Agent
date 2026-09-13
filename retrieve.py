@@ -15,14 +15,41 @@ def retrieve(state: AgentState) -> dict:
     order_id = state.get("order_id")
     classification_report = state.get("classification_report")
 
-
+    # Preserve any existing risk flag set by an earlier node (e.g. classify
+    # failed and already marked this ticket high risk). This node should
+    # never silently downgrade that.
     existing_risk_level = state.get("risk_level")
     existing_risk_reason = state.get("risk_reason")
 
-    ticket_type = classification_report.ticket_type if classification_report else None
+    # Case 0: classification never completed upstream. We genuinely don't
+    # know whether this ticket needed an order — say that plainly instead
+    # of falling through to a "not required" message that implies a check
+    # was made and passed.
+    if classification_report is None:
+        reason = existing_risk_reason or "classification_unavailable"
+        decision = log_decision(
+            ticket_id=ticket_id,
+            node_name=_NODE_NAME,
+            output_summary="classification_report missing — cannot determine if order lookup was needed",
+            risk_level=existing_risk_level or "high",
+            risk_reason=reason,
+            plain_language_rationale=(
+                "Classification did not complete for this ticket, so it could not be "
+                "determined whether an order needed to be looked up."
+            ),
+        )
+        return {
+            "ticket_id": ticket_id,
+            "retrieved_data": None,
+            "risk_level": existing_risk_level or "high",
+            "risk_reason": reason,
+            "decision_log": [decision],
+        }
+
+    ticket_type = classification_report.ticket_type
     order_required = ticket_type in _REQUIRES_ORDER
 
-
+    # Case 1: order required but no order_id available at all.
     if order_required and not order_id:
         reason = "order_required_but_missing_order_id"
         decision = log_decision(
@@ -44,7 +71,7 @@ def retrieve(state: AgentState) -> dict:
             "decision_log": [decision],
         }
 
-
+    # Case 2: no order_id, and this ticket type doesn't need one. Nothing to do.
     if not order_id:
         decision = log_decision(
             ticket_id=ticket_id,
@@ -62,7 +89,7 @@ def retrieve(state: AgentState) -> dict:
             "decision_log": [decision],
         }
 
-
+    # Case 3: we have an order_id — go fetch it.
     try:
         rows = (
             SupaBase.table("mock_orders")
@@ -90,7 +117,7 @@ def retrieve(state: AgentState) -> dict:
             "decision_log": [decision],
         }
 
-
+    # Case 3a: order_id given, but no matching row found.
     if not rows:
         if order_required:
             reason = "order_not_found_for_required_type"
@@ -115,6 +142,7 @@ def retrieve(state: AgentState) -> dict:
             "decision_log": [decision],
         }
 
+    # Case 3b: row found — validate its shape before trusting it.
     try:
         order_record = OrderRecord(**rows[0])
     except Exception as e:
@@ -136,7 +164,7 @@ def retrieve(state: AgentState) -> dict:
             "decision_log": [decision],
         }
 
-
+    # Success case — order found and valid. Don't lower a pre-existing high risk.
     decision = log_decision(
         ticket_id=ticket_id,
         node_name=_NODE_NAME,
