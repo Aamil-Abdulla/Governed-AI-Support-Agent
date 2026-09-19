@@ -30,8 +30,13 @@ class ClassificationReport(BaseModel):
     confidence: float
 
 NodeName = Literal[
-    "intake", "classify", "retrieve", "validate_grounding",
+    "intake", "classify", "retrieve", "propose_action", "validate_grounding",
     "decide", "risk_check", "execute_or_queue",
+]
+
+ProposedAction = Literal[
+    "issue_refund", "deny_refund", "provide_order_status",
+    "answer_product_question", "escalate_to_human",
 ]
 
 Route = Literal["auto_execute", "require_approval"]

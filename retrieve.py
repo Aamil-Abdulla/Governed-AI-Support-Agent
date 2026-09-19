@@ -180,3 +180,4 @@ def retrieve(state: AgentState) -> dict:
         "risk_reason": existing_risk_reason,
         "decision_log": [decision],
     }
+
