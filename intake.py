@@ -6,19 +6,24 @@ from state import AgentState
 def _log_and_fallback(ticket_id: str, node_name: str, output_summary: str, risk_reason: str) -> dict:
     """Shared helper for the two 'expected' failure paths (query failure, not found).
     Swallows a secondary logging failure to avoid audit-of-audit recursion."""
+    decision_log = []
     try:
-        log_decision(
+        decision_log.append(log_decision(
             ticket_id=ticket_id,
             node_name=node_name,
             output_summary=output_summary,
             risk_level="high",
             risk_reason=risk_reason,
             plain_language_rationale=output_summary,
-        )
+        ))
     except Exception:
         pass
-    return {"ticket_id": ticket_id, "risk_level": "high", "risk_reason": risk_reason}
-
+    return {
+        "ticket_id": ticket_id,
+        "risk_level": "high",
+        "risk_reason": risk_reason,
+        "decision_log": decision_log,
+    }
 
 def intake(state: AgentState) -> dict:
     """Entry node: looks up the ticket by ticket_id, pulls its message text
@@ -60,19 +65,20 @@ def intake(state: AgentState) -> dict:
             risk_reason="ticket_message_empty",
         )
 
-    # Work succeeded — logging failure here should NOT block intake's return,
+        # Work succeeded — logging failure here should NOT block intake's return,
     # but it MUST be visible, not silently swallowed.
+    decision_log = []
     try:
-        log_decision(
+        decision_log.append(log_decision(
             ticket_id=ticket_id,
             node_name="intake",
             output_summary=f"intake: ticket found, message length={len(ticket_text)}",
             plain_language_rationale="Ticket successfully retrieved and ready for classification.",
-        )
+        ))
     except Exception as log_error:
         print(f"WARNING: intake succeeded for {ticket_id} but audit log write failed: {log_error!r}")
 
-    result = {"ticket_id": ticket_id, "ticket_text": ticket_text}
+    result = {"ticket_id": ticket_id, "ticket_text": ticket_text, "decision_log": decision_log}
     if ticket.get("order_id"):
         result["order_id"] = ticket["order_id"]
 

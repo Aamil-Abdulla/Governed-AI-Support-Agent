@@ -1,1 +1,11 @@
-openai>=1.0.0
+langgraph
+openai
+pydantic
+python-dotenv
+supabase
+fastapi
+uvicorn
+streamlit
+requests
+langsmith
+httpx

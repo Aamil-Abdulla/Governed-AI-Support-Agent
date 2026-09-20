@@ -1,6 +1,6 @@
 from typing import TypedDict
 from typing_extensions import NotRequired, Annotated
-from schemas import OrderRecord, GroundingResult, ClassificationReport, Route
+from schemas import OrderRecord, GroundingResult, ClassificationReport, Route, ProposedAction
 import operator
 from typing_extensions import Annotated
 
@@ -15,7 +15,7 @@ class AgentState(TypedDict):
     validation_results: NotRequired[GroundingResult]
     risk_level: NotRequired[str]
     risk_reason: NotRequired[str]
-    proposed_action: NotRequired[str]
+    proposed_action: NotRequired[ProposedAction]
     # 3. Accumulating
     decision_log: Annotated[list[dict], operator.add]
     # 4. Routing / Final

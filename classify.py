@@ -17,6 +17,8 @@ _client = AzureOpenAI(
 
 _DEPLOYMENT = "ticket-classifier"
 
+_LOW_CONFIDENCE_THRESHOLD = 0.7
+
 _SYSTEM_PROMPT = (
     "You are a support-ticket classifier. You will be given a customer ticket "
     "message wrapped in <<<TICKET_MESSAGE>>> and <<<END>>> delimiters. "
@@ -56,8 +58,9 @@ def _log_and_fallback(ticket_id: str, output_summary: str, risk_reason: str, raw
     """Last resort: primary work already failed. If this logging call also
     fails, swallow silently — there's nowhere left to escalate to without
     infinite regress."""
+    decision_log = []
     try:
-        log_decision(
+        decision_log.append(log_decision(
             ticket_id=ticket_id,
             node_name="classify",
             output_summary=output_summary,
@@ -65,7 +68,7 @@ def _log_and_fallback(ticket_id: str, output_summary: str, risk_reason: str, raw
             risk_reason=risk_reason,
             raw_trace=raw_trace,
             plain_language_rationale=output_summary,
-        )
+        ))
     except Exception:
         pass
     return {
@@ -73,6 +76,7 @@ def _log_and_fallback(ticket_id: str, output_summary: str, risk_reason: str, raw
         "classification_report": ClassificationReport(ticket_type="other", confidence=0.0),
         "risk_level": "high",
         "risk_reason": risk_reason,
+        "decision_log": decision_log,
     }
 
 
@@ -117,20 +121,34 @@ def classify(state: AgentState) -> dict:
             last_error = e
             continue
         else:
+            low_confidence = report.confidence < _LOW_CONFIDENCE_THRESHOLD
+
             # Work succeeded — logging failure here should NOT downgrade this
             # ticket to high risk, but it MUST be visible, not silently swallowed.
+            decision_log = []
             try:
-                log_decision(
+                decision_log.append(log_decision(
                     ticket_id=ticket_id,
                     node_name="classify",
                     output_summary=f"classified as {report.ticket_type} (confidence={report.confidence})",
-                    risk_level="low" if report.confidence >= 0.7 else "medium",
+                    risk_level="medium" if low_confidence else "low",
+                    risk_reason="low_classification_confidence" if low_confidence else None,
                     plain_language_rationale=f"Model classified ticket as '{report.ticket_type}'.",
-                )
+                ))
             except Exception as log_error:
                 print(f"WARNING: classify succeeded for {ticket_id} but audit log write failed: {log_error!r}")
 
-            return {"ticket_id": ticket_id, "classification_report": report}
+            result = {
+                "ticket_id": ticket_id,
+                "classification_report": report,
+                "decision_log": decision_log,
+            }
+            # Low confidence must reach state, not just the audit log, so that
+            # decide.py sees it and routes the ticket to a human.
+            if low_confidence:
+                result["risk_level"] = "medium"
+                result["risk_reason"] = "low_classification_confidence"
+            return result
 
     return _log_and_fallback(
         ticket_id,

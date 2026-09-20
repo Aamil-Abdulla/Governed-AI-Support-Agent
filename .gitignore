@@ -1,4 +1,3 @@
-.env
 # Environment / secrets
 .env
 .env.*
@@ -14,3 +13,18 @@ venv/
 
 # OS
 .DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Scratch / debugging (not part of the project)
+debug_azure.py
+
+# Streamlit local state
+.streamlit/secrets.toml
+
+# Build output
+build/
+dist/

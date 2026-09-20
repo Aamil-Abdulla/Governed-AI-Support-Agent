@@ -19,7 +19,7 @@ GroundingFailureReason = Literal[
 
 class GroundingResult(BaseModel):
     result: bool
-    grounding_reason: GroundingFailureReason
+    grounding_reason: GroundingFailureReason | None = None
     pre_grounding_proposed_action: str
 
 
