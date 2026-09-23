@@ -2,8 +2,8 @@ langgraph
 openai
 pydantic
 python-dotenv
-supabase
-fastapi
+supabase==2.31.0
+fastapi==0.135.2
 uvicorn
 streamlit
 requests

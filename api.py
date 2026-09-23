@@ -53,11 +53,49 @@ def health():
 
 @app.post("/tickets/{ticket_id}/process", dependencies=[Depends(require_api_key)])
 def process_ticket(ticket_id: str):
+    rows = SupaBase.table("tickets").select("status").eq("id", ticket_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if rows[0].get("status") not in (None, "open"):
+        raise HTTPException(status_code=409, detail=f"Ticket already {rows[0]['status']}")
+
+    # Claim the ticket. Zero rows updated means another request got there first.
+    claimed = (
+        SupaBase.table("tickets")
+        .update({"status": "processing"})
+        .eq("id", ticket_id)
+        .eq("status", "open")
+        .execute()
+        .data
+    )
+    if not claimed:
+        raise HTTPException(status_code=409, detail="Ticket is already being processed")
+
     try:
-        final_state = _graph.invoke({"ticket_id": ticket_id, "decision_log": []})
+        final_state = _graph.invoke(
+            {"ticket_id": ticket_id, "decision_log": []},
+            config={"metadata": {"ticket_id": ticket_id}, "run_name": f"ticket-{ticket_id}"},
+        )
     except Exception as e:
+        # Release the claim so the ticket isn't stuck in 'processing' forever.
+        try:
+            SupaBase.table("tickets").update({"status": "open"}).eq("id", ticket_id).execute()
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {e!r}")
     return _serialize_state(final_state)
+
+
+@app.get("/tickets/{ticket_id}/decisions", dependencies=[Depends(require_api_key)])
+def get_decisions(ticket_id: str):
+    rows = (
+        SupaBase.table("decisions")
+        .select("*")
+        .eq("ticket_id", ticket_id)
+        .execute()
+        .data
+    )
+    return {"count": len(rows), "items": rows}
 
 
 @app.get("/pending-actions", dependencies=[Depends(require_api_key)])
@@ -124,15 +162,3 @@ def approve(action_id: str, body: ReviewRequest):
 @app.post("/pending-actions/{action_id}/reject", dependencies=[Depends(require_api_key)])
 def reject(action_id: str, body: ReviewRequest):
     return _review(action_id, body.reviewed_by, "rejected")
-
-
-@app.get("/tickets/{ticket_id}/decisions", dependencies=[Depends(require_api_key)])
-def get_decisions(ticket_id: str):
-    rows = (
-        SupaBase.table("decisions")
-        .select("*")
-        .eq("ticket_id", ticket_id)
-        .execute()
-        .data
-    )
-    return {"count": len(rows), "items": rows}

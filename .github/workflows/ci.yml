@@ -1,0 +1,28 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Run tests
+        env:
+          # Tests mock all external services, but modules read these at import time.
+          AZURE_OPENAI_API_KEY: test
+          AZURE_OPENAI_ENDPOINT: https://example.openai.azure.com/
+          SUPABASE_URL: https://example.supabase.co
+          SUPABASE_KEY: test
+          API_KEY: test-key
+        run: |
+          for f in test_validate_grounding test_decide test_risk_check test_execute_or_queue test_graph test_api test_injection test_propose_action; do
+            echo "== $f =="
+            python $f.py
+          done

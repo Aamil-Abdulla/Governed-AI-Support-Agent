@@ -33,17 +33,17 @@ PENDING = {"id": "a-1", "ticket_id": "t-1", "proposed_action": "issue_refund",
            "risk_reason": None, "status": "pending"}
 
 
-def test_1_health_needs_no_key():
+def test_01_health_needs_no_key():
     assert client.get("/health").json() == {"status": "ok"}
 
 
-def test_2_protected_endpoints_reject_missing_or_wrong_key():
+def test_02_protected_endpoints_reject_missing_or_wrong_key():
     assert client.get("/pending-actions").status_code == 401
     assert client.get("/pending-actions", headers={"X-API-Key": "wrong"}).status_code == 401
     assert client.post("/tickets/t-1/process").status_code == 401
 
 
-def test_3_process_ticket_returns_serialized_state():
+def test_03_process_ticket_returns_serialized_state():
     from schemas import ClassificationReport
     final_state = {
         "ticket_id": "t-1",
@@ -51,7 +51,9 @@ def test_3_process_ticket_returns_serialized_state():
         "proposed_action": "escalate_to_human", "route": "require_approval",
         "risk_level": "medium", "risk_reason": None, "decision_log": [{"node_name": "x"}],
     }
-    with patch.object(api, "_graph", MagicMock(invoke=MagicMock(return_value=final_state))):
+    db = fake_db([[{"status": "open"}], [{"id": "t-1"}]])  # status read, claim
+    with patch.object(api, "SupaBase", db), \
+         patch.object(api, "_graph", MagicMock(invoke=MagicMock(return_value=final_state))):
         r = client.post("/tickets/t-1/process", headers=HEADERS)
     assert r.status_code == 200
     body = r.json()
@@ -60,19 +62,22 @@ def test_3_process_ticket_returns_serialized_state():
     assert len(body["decision_log"]) == 1
 
 
-def test_4_process_ticket_pipeline_crash_returns_500():
-    with patch.object(api, "_graph", MagicMock(invoke=MagicMock(side_effect=RuntimeError("boom")))):
+def test_04_pipeline_crash_returns_500_and_releases_claim():
+    db = fake_db([[{"status": "open"}], [{"id": "t-1"}], []])  # read, claim, release
+    with patch.object(api, "SupaBase", db), \
+         patch.object(api, "_graph", MagicMock(invoke=MagicMock(side_effect=RuntimeError("boom")))):
         r = client.post("/tickets/t-1/process", headers=HEADERS)
     assert r.status_code == 500
+    db.table.return_value.update.assert_any_call({"status": "open"})  # claim was released
 
 
-def test_5_list_pending_actions():
+def test_05_list_pending_actions():
     with patch.object(api, "SupaBase", fake_db([[PENDING]])):
         r = client.get("/pending-actions", headers=HEADERS)
     assert r.json()["count"] == 1
 
 
-def test_6_approve_updates_action_and_ticket():
+def test_06_approve_updates_action_and_ticket():
     db = fake_db([[PENDING], [{"id": "a-1"}], []])  # select, update (returns row), ticket update
     with patch.object(api, "SupaBase", db), patch.object(api, "log_decision", MagicMock()):
         r = client.post("/pending-actions/a-1/approve", headers=HEADERS, json={"reviewed_by": "alice"})
@@ -81,27 +86,27 @@ def test_6_approve_updates_action_and_ticket():
     assert r.json()["reviewed_by"] == "alice"
 
 
-def test_7_reject_sets_ticket_rejected():
+def test_07_reject_sets_ticket_rejected():
     db = fake_db([[PENDING], [{"id": "a-1"}], []])
     with patch.object(api, "SupaBase", db), patch.object(api, "log_decision", MagicMock()):
         r = client.post("/pending-actions/a-1/reject", headers=HEADERS, json={"reviewed_by": "bob"})
     assert r.json()["ticket_status"] == "rejected"
 
 
-def test_8_unknown_action_returns_404():
+def test_08_unknown_action_returns_404():
     with patch.object(api, "SupaBase", fake_db([[]])):
         r = client.post("/pending-actions/nope/approve", headers=HEADERS, json={"reviewed_by": "alice"})
     assert r.status_code == 404
 
 
-def test_9_already_reviewed_returns_409():
+def test_09_already_reviewed_returns_409():
     done = dict(PENDING, status="approved")
     with patch.object(api, "SupaBase", fake_db([[done]])):
         r = client.post("/pending-actions/a-1/approve", headers=HEADERS, json={"reviewed_by": "alice"})
     assert r.status_code == 409
 
 
-def test_10_race_lost_returns_409():
+def test_10_review_race_lost_returns_409():
     # Read sees 'pending', but by the time we update, another reviewer won: zero rows updated.
     with patch.object(api, "SupaBase", fake_db([[PENDING], []])):
         r = client.post("/pending-actions/a-1/approve", headers=HEADERS, json={"reviewed_by": "alice"})
@@ -118,11 +123,32 @@ def test_11_audit_failure_does_not_undo_review():
 def test_12_missing_reviewer_is_422():
     r = client.post("/pending-actions/a-1/approve", headers=HEADERS, json={})
     assert r.status_code == 422
-    
+
+
 def test_13_get_decisions():
     with patch.object(api, "SupaBase", fake_db([[{"node_name": "intake"}, {"node_name": "classify"}]])):
         r = client.get("/tickets/t-1/decisions", headers=HEADERS)
     assert r.json()["count"] == 2
+
+
+def test_14_already_processed_ticket_returns_409():
+    with patch.object(api, "SupaBase", fake_db([[{"status": "resolved"}]])):
+        r = client.post("/tickets/t-1/process", headers=HEADERS)
+    assert r.status_code == 409
+
+
+def test_15_missing_ticket_returns_404():
+    with patch.object(api, "SupaBase", fake_db([[]])):
+        r = client.post("/tickets/t-1/process", headers=HEADERS)
+    assert r.status_code == 404
+
+
+def test_16_lost_claim_race_returns_409():
+    # Status reads 'open', but another request claimed it first: zero rows updated.
+    with patch.object(api, "SupaBase", fake_db([[{"status": "open"}], []])):
+        r = client.post("/tickets/t-1/process", headers=HEADERS)
+    assert r.status_code == 409
+
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
